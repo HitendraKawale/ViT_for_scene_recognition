@@ -1,0 +1,41 @@
+# configs/batch48_config.yaml
+
+# Run & Directory Settings
+run_name: "ViT_Batch48_LR-high_Aug-strong" # Descriptive name for this run
+data_dir: "data/Places2_simp"
+log_dir: "results/runs"
+
+# Model & Precision
+model_name: "google/vit-base-patch16-224"
+precision: "fp16" # "fp16" for mixed precision or "fp32"
+
+# Hyperparameters for Tuning
+epochs: 20
+batch_size: 48 # Changed to 48
+learning_rate: 0.0001
+weight_decay: 0.01
+
+optimizer:
+  name: "AdamW"
+  lr: 0.0001
+  weight_decay: 0.01
+
+scheduler:
+  name: "cosine"
+
+# Data Augmentation Pipeline
+augmentations:
+  - name: "RandomHorizontalFlip"
+    params: {}
+  - name: "ColorJitter"
+    params: {brightness: 0.2, contrast: 0.2, saturation: 0.2}
+  - name: "RandomRotation"
+    params: {degrees: 20}
+  - name: "RandomAffine"
+    params: {degrees: 0, translate: [0.1, 0.1], scale: [0.9, 1.1]}
+  - name: "RandomGrayscale"
+    params: {p: 0.1}
+
+# Training Control
+seed: 42
+patience: 5

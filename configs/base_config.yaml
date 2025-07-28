@@ -1,0 +1,29 @@
+# configs/base_config.yaml
+
+# Run & Directory Settings
+run_name: "ViT_Places2_AdamW_Cosine" # Descriptive base name for the run
+data_dir: "data/Places2_simp"        # Path to the dataset
+log_dir: "results/runs"              # Where to save all logs and models
+
+# Model & Precision
+model_name: "google/vit-base-patch16-224"
+precision: "fp16" # "fp16" for mixed precision or "fp32"
+
+# Hyperparameters for Tuning
+epochs: 20
+batch_size: 32
+
+optimizer:
+  name: "AdamW"       # Options: AdamW, SGD
+  lr: 0.0001
+  weight_decay: 0.01  # Specific to AdamW
+  # momentum: 0.9     # Specific to SGD (uncomment if using)
+
+scheduler:
+  name: "cosine"      # Options: cosine, step
+  # step_size: 5      # Specific to step scheduler
+  # lr_gamma: 0.1     # Specific to step scheduler
+
+# Training Control
+seed: 42
+patience: 3 # For early stopping
