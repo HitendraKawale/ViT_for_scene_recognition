@@ -4,7 +4,7 @@ import argparse
 
 def clean_images(directory):
     """
-    Recursively finds and deletes invalid/corrupted images in a directory.
+    finds and deletes invalid/corrupted images.
     """
     deleted_count = 0
     for root, _, files in os.walk(directory):
@@ -14,7 +14,7 @@ def clean_images(directory):
                 file_path = os.path.join(root, filename)
                 try:
                     with Image.open(file_path) as img:
-                        img.verify() # Check if image is valid
+                        img.verify() # image valid or not
                 except (IOError, SyntaxError, Image.UnidentifiedImageError):
                     print(f"Deleting invalid image: {file_path}")
                     os.remove(file_path)
