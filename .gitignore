@@ -6,3 +6,4 @@ __pycache__/
 
 results/runs/
 data/Places2_simp/
+data/custom_test_set/
