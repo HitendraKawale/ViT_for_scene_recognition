@@ -10,7 +10,8 @@ import argparse
 import os
 
 from transformers import AutoImageProcessor, ViTForImageClassification
-#in case image is invalid and throwing error
+
+#in case image is invalid and throwing error(there is a script in ./scripts/ to clean your custom dataset)
 from PIL import Image
 
 def is_valid_image(path):
