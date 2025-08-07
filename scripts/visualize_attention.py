@@ -13,15 +13,24 @@ import numpy as np
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 from utils.dataset import PlacesDataset 
 
+
 def plot_attention_map(original_image, attention_map, save_path):
     """Overlays the attention map on the original image and saves it."""
-    fig, ax = plt.subplots()
+    fig, ax = plt.subplots(figsize=(6, 6))
+    
+    # Ensure attention map is a numpy array
+    if isinstance(attention_map, torch.Tensor):
+        attention_map = attention_map.cpu().numpy()
+        
+    attention_map = (attention_map - np.min(attention_map)) / (np.max(attention_map) - np.min(attention_map))
+
     ax.imshow(original_image)
-    ax.imshow(attention_map, cmap='jet', alpha=0.5) # Overlay heatmap
+    ax.imshow(attention_map, cmap='viridis', alpha=0.6) 
     ax.axis('off')
+    
     plt.savefig(save_path, bbox_inches='tight', pad_inches=0)
-    plt.close()
-    print(f"✅ Attention map saved to {save_path}")
+    plt.close(fig) # Close the figure to free up memory
+    print(f"Attention map saved to {save_path}")
 
 def main(args):
     # --- 1. SETUP ---

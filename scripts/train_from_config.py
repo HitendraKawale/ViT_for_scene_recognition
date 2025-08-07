@@ -8,7 +8,8 @@ import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import DataLoader, random_split
 from torchvision import transforms
-from transformers import AutoImageProcessor, ViTForImageClassification
+from torchvision import models
+from transformers import AutoImageProcessor, ViTForImageClassification, Dinov2ForImageClassification
 from torch.utils.tensorboard import SummaryWriter
 from tqdm import tqdm
 import csv
@@ -94,23 +95,46 @@ def train(config):
     print(f"Classes: {len(class_names)} | Train images: {len(train_data)} | Val images: {len(val_data)}")
 
 # --- 3. MODEL, OPTIMIZER, AND LOSS FUNCTION ---
-    
-    model = ViTForImageClassification.from_pretrained(
-        config["model_name"],
-        num_labels=len(class_names),
-        ignore_mismatched_sizes=True
-    ).to(device)
+
+    # Dynamically load the model based on the config file
+    if "dinov2" in config["model_name"]:
+       
+        model = Dinov2ForImageClassification.from_pretrained(
+            config["model_name"],
+            num_labels=len(class_names),
+            ignore_mismatched_sizes=True
+        ).to(device)
+        print(f"Loaded {config['model_name']} using Dinov2ForImageClassification.")
+
+    elif "google/vit" in config["model_name"]:
+  
+        model = ViTForImageClassification.from_pretrained(
+            config["model_name"],
+            num_labels=len(class_names),
+            ignore_mismatched_sizes=True
+        ).to(device)
+        print(f"Loaded {config['model_name']} using ViTForImageClassification.")
+
+    elif config["model_name"] == "resnet50":
+        model = models.resnet50(weights='IMAGENET1K_V1') # Use modern weights argument
+        num_ftrs = model.fc.in_features
+        model.fc = nn.Linear(num_ftrs, len(class_names)) # Replace the final layer
+        model = model.to(device)
+        print("Loaded resnet50 from torchvision.")
+
+    else:
+        raise ValueError(f"Unsupported model name: {config['model_name']}")
 
     # Optimizer setup from config
     optimizer_config = config["optimizer"]
     if optimizer_config["name"] == "AdamW":
-        optimizer = optim.AdamW(model.parameters(), 
-                                lr=optimizer_config["lr"], 
+        optimizer = optim.AdamW(model.parameters(),
+                                lr=optimizer_config["lr"],
                                 weight_decay=optimizer_config.get("weight_decay", 0.01))
         print("Using AdamW optimizer.")
     elif optimizer_config["name"] == "SGD":
-        optimizer = optim.SGD(model.parameters(), 
-                              lr=optimizer_config["lr"], 
+        optimizer = optim.SGD(model.parameters(),
+                              lr=optimizer_config["lr"],
                               momentum=optimizer_config.get("momentum", 0.9))
         print("Using SGD optimizer.")
     else:
@@ -122,16 +146,17 @@ def train(config):
         scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=config["epochs"])
         print("Using CosineAnnealingLR scheduler.")
     elif scheduler_config["name"] == "step":
-        scheduler = optim.lr_scheduler.StepLR(optimizer, 
-                                              step_size=scheduler_config["step_size"], 
+        scheduler = optim.lr_scheduler.StepLR(optimizer,
+                                              step_size=scheduler_config["step_size"],
                                               gamma=scheduler_config["lr_gamma"])
         print("Using StepLR scheduler.")
     else:
         scheduler = None
         print("No scheduler selected.")
-        
-    # Loss function
+
+    # Loss function (kept hardcoded as it's standard for this task)
     criterion = nn.CrossEntropyLoss()
+
 
     # --- 4. LOGGING SETUP ---
     

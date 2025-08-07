@@ -1,0 +1,44 @@
+# configs/resnet_config.yaml
+
+# Run & Directory Settings
+run_name: "ResNet50_Comparison_Run"
+data_dir: "data/Places2_simp"
+log_dir: "results/runs"
+
+# Model & Precision
+model_name: "resnet50"
+precision: "fp16"
+
+# Hyperparameters for Tuning
+epochs: 20
+batch_size: 32
+learning_rate: 0.0003
+weight_decay: 0.01
+
+optimizer:
+  name: "AdamW"
+  lr: 0.0003
+  weight_decay: 0.01
+
+scheduler:
+  name: "cosine"
+
+# Data Augmentation Pipeline for robust training
+augmentations:
+  - name: "RandomHorizontalFlip"
+    params: {}
+  - name: "ColorJitter"
+    params: {brightness: 0.2, contrast: 0.2, saturation: 0.2}
+  - name: "RandomRotation"
+    params: {degrees: 20}
+  - name: "RandomAffine"
+    params: {degrees: 0, translate: [0.1, 0.1], scale: [0.9, 1.1]}
+  - name: "RandomGrayscale"
+    params: {p: 0.1}
+
+# Training Control
+seed: 42
+patience: 5
+
+
+
