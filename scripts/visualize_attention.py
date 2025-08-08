@@ -77,8 +77,11 @@ def main(args):
     avg_attention = torch.mean(attentions, dim=1).squeeze(0)
     cls_attention = avg_attention[0, 1:]
     
-    patch_size = 16
-    grid_size = 224 // patch_size
+    # Dynamically calculate the grid size
+    num_patches = cls_attention.shape[0]
+    grid_size = int(np.sqrt(num_patches))
+    
+    # Reshape the attention scores to a 2D grid
     attention_grid = cls_attention.reshape(grid_size, grid_size)
 
     # --- 4. VISUALIZE ---
