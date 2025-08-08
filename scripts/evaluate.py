@@ -1,18 +1,17 @@
 import torch
 import torch.nn.functional as F
 from torch.utils.data import DataLoader
-from torchvision import transforms, datasets
+from torchvision import transforms, datasets, models
 import matplotlib.pyplot as plt
 import seaborn as sns
 from sklearn.metrics import confusion_matrix
 import numpy as np
 import argparse
 import os
-
-from transformers import AutoImageProcessor, ViTForImageClassification
-
-#in case image is invalid and throwing error(there is a script in ./scripts/ to clean your custom dataset)
 from PIL import Image
+
+# Import all necessary model classes
+from transformers import AutoImageProcessor, ViTForImageClassification, Dinov2ForImageClassification
 
 def is_valid_image(path):
     """Checks if an image file can be opened and is not corrupted."""
@@ -23,47 +22,74 @@ def is_valid_image(path):
     except (IOError, SyntaxError, Image.UnidentifiedImageError):
         print(f"Skipping corrupted or invalid image: {path}")
         return False
-        
+
 def evaluate(args):
     """Evaluates the model on a custom test set."""
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Using device: {device}")
 
-    # --- 1. Load Model and Data ---
+    # --- 1. Define Normalization and Transformations ---
+    # First, determine the correct normalization based on the model
+    if "dinov2" in args.model_name or "google/vit" in args.model_name:
+        extractor = AutoImageProcessor.from_pretrained(args.model_name, use_fast=True)
+        normalize = transforms.Normalize(mean=extractor.image_mean, std=extractor.image_std)
+    elif args.model_name == "resnet50":
+        normalize = transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+    else:
+        raise ValueError(f"Normalization stats not defined for model: {args.model_name}")
+
     # Use the same transformations as in the validation set (no augmentation)
-    extractor = AutoImageProcessor.from_pretrained(args.model_name)
     test_transform = transforms.Compose([
         transforms.Resize((224, 224)),
         transforms.ToTensor(),
-        transforms.Normalize(mean=extractor.image_mean, std=extractor.image_std)
+        normalize
     ])
-    
-    # Load the test dataset from the specified directory
-    test_dataset = datasets.ImageFolder(root=args.test_dir, transform=test_transform, allow_empty=True, is_valid_file=is_valid_image)
+
+    # --- 2. Load Dataset ---
+    test_dataset = datasets.ImageFolder(
+        root=args.test_dir, 
+        transform=test_transform, 
+        allow_empty=True, 
+        is_valid_file=is_valid_image
+    )
     test_loader = DataLoader(test_dataset, batch_size=args.batch_size, shuffle=False)
     class_names = test_dataset.classes
     print(f"Found {len(test_dataset)} images in {len(class_names)} classes.")
 
-    # Load your best model
-    model = ViTForImageClassification.from_pretrained(
-        args.model_name,
-        num_labels=len(class_names),
-        ignore_mismatched_sizes=True
-    ).to(device)
+    # --- 3. Load Model ---
+    if "dinov2" in args.model_name:
+        model = Dinov2ForImageClassification.from_pretrained(
+            args.model_name, num_labels=len(class_names), ignore_mismatched_sizes=True
+        ).to(device)
+    elif "google/vit" in args.model_name:
+        model = ViTForImageClassification.from_pretrained(
+            args.model_name, num_labels=len(class_names), ignore_mismatched_sizes=True
+        ).to(device)
+    elif args.model_name == "resnet50":
+        model = models.resnet50(weights='IMAGENET1K_V1')
+        num_ftrs = model.fc.in_features
+        model.fc = nn.Linear(num_ftrs, len(class_names))
+        model = model.to(device)
+    else:
+        raise ValueError(f"Unsupported model name: {args.model_name}")
+
     model.load_state_dict(torch.load(args.model_path, map_location=device))
     model.eval()
 
-    # --- 2. Run Evaluation ---
-    all_preds = []
-    all_labels = []
-    correct_top1 = 0
-    correct_top5 = 0
-    total = 0
+    # --- 4. Run Evaluation ---
+    all_preds, all_labels = [], []
+    correct_top1, correct_top5, total = 0, 0, 0
 
     with torch.no_grad():
         for images, labels in test_loader:
             images, labels = images.to(device), labels.to(device)
-            outputs = model(images).logits
+            
+            # Conditionally handle model output
+            model_output = model(images)
+            if args.model_name == "resnet50":
+                outputs = model_output
+            else: # For Hugging Face models
+                outputs = model_output.logits
             
             # Top-1 accuracy
             _, predicted = torch.max(outputs, 1)
@@ -77,7 +103,7 @@ def evaluate(args):
             all_preds.extend(predicted.cpu().numpy())
             all_labels.extend(labels.cpu().numpy())
 
-    # --- 3. Print and Save Results ---
+    # --- 5. Print and Save Results ---
     top1_acc = 100 * correct_top1 / total
     top5_acc = 100 * correct_top5 / total
     print(f"\n--- Test Set Results ---")
@@ -102,7 +128,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Evaluate a trained model on the custom test set.")
     parser.add_argument("--model_path", type=str, required=True, help="Path to the trained model's .pth file.")
     parser.add_argument("--test_dir", type=str, required=True, help="Path to the root directory of the test set.")
-    parser.add_argument("--model_name", type=str, default="google/vit-base-patch16-224")
+    parser.add_argument("--model_name", type=str, default="google/vit-base-patch16-224", help="Name of the model architecture.")
     parser.add_argument("--batch_size", type=int, default=32)
     args = parser.parse_args()
     evaluate(args)
