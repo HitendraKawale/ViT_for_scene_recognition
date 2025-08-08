@@ -89,9 +89,14 @@ def main(args):
                 break
 
             images, labels = images.to(device), labels.to(device)
-            outputs = model(images).logits
-            probs = F.softmax(outputs, dim=1)
 
+            model_output = model(images)
+            if args.model_name == "resnet50":
+                outputs = model_output
+            else:  # For Hugging Face models
+                outputs = model_output.logits
+
+            probs = F.softmax(outputs, dim=1)
             top5_probs, top5_indices = torch.topk(probs, 5)
             preds = top5_indices[:, 0]
 

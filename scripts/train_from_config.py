@@ -42,17 +42,23 @@ def train(config):
     use_amp = config["precision"] == "fp16" and device.type == "cuda"
     scaler = torch.amp.GradScaler(device="cuda", enabled=use_amp)
     print(f"Using device: {device} | Mixed Precision: {'Enabled' if use_amp else 'Disabled'}")
-
-    # --- 2. DATA LOADING AND TRANSFORMATION ---
     
-    # Load feature extractor for normalization values
-    extractor = AutoImageProcessor.from_pretrained(config["model_name"], use_fast=True)
-    normalize = transforms.Normalize(mean=extractor.image_mean, std=extractor.image_std)
+# --- 2. DATA LOADING AND TRANSFORMATION ---
 
-    # Dynamically build augmentation pipeline from config
+    # First, determine the correct normalization based on the model
+    if "dinov2" in config["model_name"] or "google/vit" in config["model_name"]:
+        # Use the image processor from the specific Hugging Face model
+        extractor = AutoImageProcessor.from_pretrained(config["model_name"], use_fast=True)
+        normalize = transforms.Normalize(mean=extractor.image_mean, std=extractor.image_std)
+    elif config["model_name"] == "resnet50":
+        # Use standard ImageNet normalization for ResNet
+        normalize = transforms.Normalize(mean=[0.485, 0.456, 0.406],
+                                     std=[0.229, 0.224, 0.225])
+    else:
+        raise ValueError(f"Normalization stats not defined for model: {config['model_name']}")
+
+    # Now, build the full transformation pipelines
     train_transforms_list = [transforms.Resize((224, 224))]
-    
-    # Map string names to torchvision transform classes
     transform_map = {
         "RandomHorizontalFlip": transforms.RandomHorizontalFlip,
         "ColorJitter": transforms.ColorJitter,
@@ -60,33 +66,27 @@ def train(config):
         "RandomAffine": transforms.RandomAffine,
         "RandomGrayscale": transforms.RandomGrayscale
     }
-
     if "augmentations" in config:
         for aug in config["augmentations"]:
             if aug["name"] in transform_map:
-                # Add the transform with its parameters
-                train_transforms_list.append(transform_map[aug["name"]](**aug["params"]))
+                params = aug.get("params", {})
+                train_transforms_list.append(transform_map[aug["name"]](**params))
                 print(f"Added augmentation: {aug['name']}")
-
-    # Add the mandatory transforms at the end
     train_transforms_list.extend([transforms.ToTensor(), normalize])
-    
     train_transform = transforms.Compose(train_transforms_list)
 
-    # No augmentation for the validation set
     val_transform = transforms.Compose([
         transforms.Resize((224, 224)),
         transforms.ToTensor(),
         normalize
     ])
 
-    # [cite_start]Load dataset and apply 80/20 split [cite: 72]
+    # Load dataset and apply 80/20 split
     full_dataset = PlacesDataset(config["data_dir"], transform=train_transform)
     train_size = int(0.8 * len(full_dataset))
     val_size = len(full_dataset) - train_size
     train_data, val_data = random_split(full_dataset, [train_size, val_size], generator=torch.Generator().manual_seed(config["seed"]))
     
-    # Apply the correct transformation to the validation set
     val_data.dataset.transform = val_transform
     
     train_loader = DataLoader(train_data, batch_size=config["batch_size"], shuffle=True, num_workers=4)
@@ -94,11 +94,11 @@ def train(config):
     class_names = full_dataset.classes
     print(f"Classes: {len(class_names)} | Train images: {len(train_data)} | Val images: {len(val_data)}")
 
-# --- 3. MODEL, OPTIMIZER, AND LOSS FUNCTION ---
+
+    # --- 3. MODEL, OPTIMIZER, AND LOSS FUNCTION ---
 
     # Dynamically load the model based on the config file
     if "dinov2" in config["model_name"]:
-       
         model = Dinov2ForImageClassification.from_pretrained(
             config["model_name"],
             num_labels=len(class_names),
@@ -107,7 +107,6 @@ def train(config):
         print(f"Loaded {config['model_name']} using Dinov2ForImageClassification.")
 
     elif "google/vit" in config["model_name"]:
-  
         model = ViTForImageClassification.from_pretrained(
             config["model_name"],
             num_labels=len(class_names),
@@ -116,9 +115,9 @@ def train(config):
         print(f"Loaded {config['model_name']} using ViTForImageClassification.")
 
     elif config["model_name"] == "resnet50":
-        model = models.resnet50(weights='IMAGENET1K_V1') # Use modern weights argument
+        model = models.resnet50(weights='IMAGENET1K_V1')
         num_ftrs = model.fc.in_features
-        model.fc = nn.Linear(num_ftrs, len(class_names)) # Replace the final layer
+        model.fc = nn.Linear(num_ftrs, len(class_names))
         model = model.to(device)
         print("Loaded resnet50 from torchvision.")
 
@@ -154,10 +153,8 @@ def train(config):
         scheduler = None
         print("No scheduler selected.")
 
-    # Loss function (kept hardcoded as it's standard for this task)
+    # Loss function
     criterion = nn.CrossEntropyLoss()
-
-
     # --- 4. LOGGING SETUP ---
     
     writer = SummaryWriter(log_dir=save_dir) # TensorBoard logger [cite: 77]
@@ -180,7 +177,11 @@ def train(config):
             images, labels = images.to(device), labels.to(device)
             
             with torch.amp.autocast(device_type="cuda", enabled=use_amp):
-                outputs = model(images).logits
+                model_output = model(images)
+                if config["model_name"] == "resnet50":
+                    outputs = model_output
+                else: # For Hugging Face models
+                    outputs = model_output.logits
                 loss = criterion(outputs, labels)
 
             optimizer.zero_grad()
@@ -202,7 +203,11 @@ def train(config):
         with torch.no_grad():
             for images, labels in val_loader:
                 images, labels = images.to(device), labels.to(device)
-                outputs = model(images).logits
+                model_output = model(images)
+                if config["model_name"] == "resnet50":
+                    outputs = model_output
+                else: # For Hugging Face models
+                    outputs = model_output.logits
                 
                 # Top-1 accuracy
                 _, predicted = torch.max(outputs, 1)
@@ -255,7 +260,11 @@ def train(config):
     with torch.no_grad():
         for images, labels in val_loader:
             images, labels = images.to(device), labels.to(device)
-            outputs = model(images).logits
+            model_output = model(images)
+            if config["model_name"] == "resnet50":
+                outputs = model_output
+            else: # For Hugging Face models
+                outputs = model_output.logits
             all_preds.extend(outputs.argmax(1).cpu().numpy())
             all_labels.extend(labels.cpu().numpy())
             
