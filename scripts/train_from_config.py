@@ -27,33 +27,25 @@ def train(config):
     Main training and evaluation function.
     """
     # --- 1. CONFIGURATION AND DIRECTORY SETUP ---
-    
-    # Create a unique run name with a timestamp
     run_name = f'{config["run_name"]}_{datetime.now().strftime("%Y%m%d_%H%M%S")}'
     save_dir = os.path.join(config["log_dir"], run_name)
     os.makedirs(save_dir, exist_ok=True)
-
-    # Save the config file used for this run
     with open(os.path.join(save_dir, "config.yaml"), "w") as f:
         yaml.dump(config, f)
     
-    # Device and precision setup
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     use_amp = config["precision"] == "fp16" and device.type == "cuda"
-    scaler = torch.amp.GradScaler(device="cuda", enabled=use_amp)
+    scaler = torch.amp.GradScaler(device='cuda', enabled=use_amp)
     print(f"Using device: {device} | Mixed Precision: {'Enabled' if use_amp else 'Disabled'}")
-    
-# --- 2. DATA LOADING AND TRANSFORMATION ---
 
+    # --- 2. DATA LOADING AND TRANSFORMATION (CORRECTED LOGIC) ---
+    
     # First, determine the correct normalization based on the model
     if "dinov2" in config["model_name"] or "google/vit" in config["model_name"]:
-        # Use the image processor from the specific Hugging Face model
         extractor = AutoImageProcessor.from_pretrained(config["model_name"], use_fast=True)
         normalize = transforms.Normalize(mean=extractor.image_mean, std=extractor.image_std)
     elif config["model_name"] == "resnet50":
-        # Use standard ImageNet normalization for ResNet
-        normalize = transforms.Normalize(mean=[0.485, 0.456, 0.406],
-                                     std=[0.229, 0.224, 0.225])
+        normalize = transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
     else:
         raise ValueError(f"Normalization stats not defined for model: {config['model_name']}")
 
@@ -94,68 +86,48 @@ def train(config):
     class_names = full_dataset.classes
     print(f"Classes: {len(class_names)} | Train images: {len(train_data)} | Val images: {len(val_data)}")
 
-
     # --- 3. MODEL, OPTIMIZER, AND LOSS FUNCTION ---
-
-    # Dynamically load the model based on the config file
+    # ... (This is the full model, optimizer, scheduler, and loss block)
     if "dinov2" in config["model_name"]:
         model = Dinov2ForImageClassification.from_pretrained(
-            config["model_name"],
-            num_labels=len(class_names),
-            ignore_mismatched_sizes=True
+            config["model_name"], num_labels=len(class_names), ignore_mismatched_sizes=True
         ).to(device)
         print(f"Loaded {config['model_name']} using Dinov2ForImageClassification.")
-
     elif "google/vit" in config["model_name"]:
         model = ViTForImageClassification.from_pretrained(
-            config["model_name"],
-            num_labels=len(class_names),
-            ignore_mismatched_sizes=True
+            config["model_name"], num_labels=len(class_names), ignore_mismatched_sizes=True
         ).to(device)
         print(f"Loaded {config['model_name']} using ViTForImageClassification.")
-
     elif config["model_name"] == "resnet50":
         model = models.resnet50(weights='IMAGENET1K_V1')
         num_ftrs = model.fc.in_features
         model.fc = nn.Linear(num_ftrs, len(class_names))
         model = model.to(device)
         print("Loaded resnet50 from torchvision.")
-
     else:
         raise ValueError(f"Unsupported model name: {config['model_name']}")
 
-    # Optimizer setup from config
     optimizer_config = config["optimizer"]
     if optimizer_config["name"] == "AdamW":
-        optimizer = optim.AdamW(model.parameters(),
-                                lr=optimizer_config["lr"],
-                                weight_decay=optimizer_config.get("weight_decay", 0.01))
+        optimizer = optim.AdamW(model.parameters(), lr=optimizer_config["lr"], weight_decay=optimizer_config.get("weight_decay", 0.01))
         print("Using AdamW optimizer.")
     elif optimizer_config["name"] == "SGD":
-        optimizer = optim.SGD(model.parameters(),
-                              lr=optimizer_config["lr"],
-                              momentum=optimizer_config.get("momentum", 0.9))
+        optimizer = optim.SGD(model.parameters(), lr=optimizer_config["lr"], momentum=optimizer_config.get("momentum", 0.9))
         print("Using SGD optimizer.")
     else:
         raise ValueError(f"Unsupported optimizer: {optimizer_config['name']}")
 
-    # Scheduler setup from config
     scheduler_config = config["scheduler"]
     if scheduler_config["name"] == "cosine":
         scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=config["epochs"])
         print("Using CosineAnnealingLR scheduler.")
     elif scheduler_config["name"] == "step":
-        scheduler = optim.lr_scheduler.StepLR(optimizer,
-                                              step_size=scheduler_config["step_size"],
-                                              gamma=scheduler_config["lr_gamma"])
+        scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=scheduler_config["step_size"], gamma=scheduler_config["lr_gamma"])
         print("Using StepLR scheduler.")
     else:
         scheduler = None
         print("No scheduler selected.")
-
-    # Loss function
-    criterion = nn.CrossEntropyLoss()
-    # --- 4. LOGGING SETUP ---
+    criterion = nn.CrossEntropyLoss()    # --- 4. LOGGING SETUP ---
     
     writer = SummaryWriter(log_dir=save_dir) # TensorBoard logger [cite: 77]
     metrics_path = os.path.join(save_dir, "metrics.csv")

@@ -7,6 +7,8 @@ import numpy as np
 import argparse
 import sys
 import os
+from torchvision import models
+from transformers import ViTForImageClassification, Dinov2ForImageClassification
 
 # Add project root to Python path
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
@@ -46,35 +48,50 @@ def plot_predictions(images, true_labels, top5_probs, top5_classes, class_names,
     plt.tight_layout(rect=[0, 0, 0.85, 1]) # Adjust layout to make space for text
     plt.show()
 
-
 def main(args):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-    # --- Load Model and Data ---
-    # Use the same transformations as in the validation set
-    extractor = AutoImageProcessor.from_pretrained("google/vit-base-patch16-224")
+    # --- Load Model and Data (Corrected Logic) ---
+    if "dinov2" in args.model_name or "google/vit" in args.model_name:
+        extractor = AutoImageProcessor.from_pretrained(args.model_name, use_fast=True)
+        normalize = transforms.Normalize(mean=extractor.image_mean, std=extractor.image_std)
+    elif args.model_name == "resnet50":
+        normalize = transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+    else:
+        raise ValueError(f"Normalization stats not defined for model: {args.model_name}")
+
     val_transform = transforms.Compose([
         transforms.Resize((224, 224)),
         transforms.ToTensor(),
-        transforms.Normalize(mean=extractor.image_mean, std=extractor.image_std)
+        normalize
     ])
-   
-     # Load the full dataset to get class names and split it exactly as in training
+    
     full_dataset = PlacesDataset(args.data_dir)
     train_size = int(0.8 * len(full_dataset))
     val_size = len(full_dataset) - train_size
     _, val_data = random_split(full_dataset, [train_size, val_size], generator=torch.Generator().manual_seed(args.seed))
-
+    
     val_data.dataset.transform = val_transform
-    val_loader = DataLoader(val_data, batch_size=args.batch_size, shuffle=True) # Shuffle to get random images
+    val_loader = DataLoader(val_data, batch_size=args.batch_size, shuffle=True)
     class_names = full_dataset.classes
+    
+    # Load your best model using the correct architecture
+    if "dinov2" in args.model_name:
+        model = Dinov2ForImageClassification.from_pretrained(
+            args.model_name, num_labels=len(class_names), ignore_mismatched_sizes=True
+        ).to(device)
+    elif "google/vit" in args.model_name:
+        model = ViTForImageClassification.from_pretrained(
+            args.model_name, num_labels=len(class_names), ignore_mismatched_sizes=True
+        ).to(device)
+    elif args.model_name == "resnet50":
+        model = models.resnet50(weights='IMAGENET1K_V1')
+        num_ftrs = model.fc.in_features
+        model.fc = nn.Linear(num_ftrs, len(class_names))
+        model = model.to(device)
+    else:
+        raise ValueError(f"Unsupported model name: {args.model_name}")
 
-    # Load your best model
-    model = ViTForImageClassification.from_pretrained(
-        "google/vit-base-patch16-224",
-        num_labels=len(class_names),
-        ignore_mismatched_sizes=True
-    ).to(device)
     model.load_state_dict(torch.load(args.model_path, map_location=device))
     model.eval()
 
@@ -87,31 +104,31 @@ def main(args):
         for images, labels in val_loader:
             if found_images >= args.num_images:
                 break
-
+            
             images, labels = images.to(device), labels.to(device)
-
+            
+            # Handle different model output formats
             model_output = model(images)
             if args.model_name == "resnet50":
                 outputs = model_output
-            else:  # For Hugging Face models
+            else: # For Hugging Face models
                 outputs = model_output.logits
-
+                
             probs = F.softmax(outputs, dim=1)
             top5_probs, top5_indices = torch.topk(probs, 5)
             preds = top5_indices[:, 0]
-
-            # Check for correct or incorrect predictions
+            
             matches = (preds == labels) if args.correct else (preds != labels)
-
+            
             for i in range(len(matches)):
                 if matches[i] and found_images < args.num_images:
                     batch_images.append(images[i])
                     batch_labels.append(labels[i].item())
                     batch_top5_probs.append(top5_probs[i].cpu().numpy())
-
+                    
                     predicted_class_names = [class_names[idx] for idx in top5_indices[i].cpu().numpy()]
                     batch_top5_classes.append(predicted_class_names)
-
+                    
                     found_images += 1
 
     # --- Plot Results ---
@@ -124,6 +141,7 @@ def main(args):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Visualize model predictions on the validation set.")
     parser.add_argument("--model_path", type=str, required=True, help="Path to the trained model's .pth file.")
+    parser.add_argument("--model_name", type=str, default="google/vit-base-patch16-224", help="Name of the model architecture.")
     parser.add_argument("--data_dir", type=str, default="data/Places2_simp", help="Path to the root dataset directory.")
     parser.add_argument("--num_images", type=int, default=5, help="Number of images to visualize.")
     parser.add_argument("--seed", type=int, default=42, help="Seed for the train/val split.")

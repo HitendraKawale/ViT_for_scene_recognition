@@ -1,7 +1,7 @@
 # configs/best_config.yaml
 
 # Run & Directory Settings
-run_name: "ViT_Best_Final_Model"
+run_name: "ViT_Best_Final"
 data_dir: "data/Places2_simp"
 log_dir: "results/runs"
 
