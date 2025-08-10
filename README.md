@@ -80,6 +80,6 @@ python scripts/visualize_attention.py \
 ### 4. Comparing the Performance of all Models using TensorBoard
 
 ```bash
-tesnsorboard --logdir ./results/run
+tesnsorboard --logdir ./results/runs/
 ```
 
