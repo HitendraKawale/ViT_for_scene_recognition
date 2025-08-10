@@ -55,6 +55,7 @@ python scripts/evaluate.py \
     --test_dir "data/custom_test_set/" \
     --model_name "name_of_your_model"
 ```
+
 ### 3. Visualising Predictions and Attention Maps
 
 You can visualise predicted top correct classes or incorrect classes by the model using the visualize_prediction.py script
@@ -75,3 +76,10 @@ python scripts/visualize_attention.py \
     --image_path "path/to/an/image.jpg" \
     --save_path "results/attention_map_name.png"
 ```
+
+### 4. Comparing the Performance of all Models using TensorBoard
+
+```bash
+tesnsorboard --logdir ./results/run
+```
+
