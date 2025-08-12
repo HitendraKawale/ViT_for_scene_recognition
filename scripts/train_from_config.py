@@ -38,7 +38,7 @@ def train(config):
     scaler = torch.amp.GradScaler(device='cuda', enabled=use_amp)
     print(f"Using device: {device} | Mixed Precision: {'Enabled' if use_amp else 'Disabled'}")
 
-    # --- 2. DATA LOADING AND TRANSFORMATION (CORRECTED LOGIC) ---
+    # --- 2. DATA LOADING AND TRANSFORMATION ---
     
     # First, determine the correct normalization based on the model
     if "dinov2" in config["model_name"] or "google/vit" in config["model_name"]:
@@ -49,7 +49,7 @@ def train(config):
     else:
         raise ValueError(f"Normalization stats not defined for model: {config['model_name']}")
 
-    # Now, build the full transformation pipelines
+    # Now, building the full transformation pipelines
     train_transforms_list = [transforms.Resize((224, 224))]
     transform_map = {
         "RandomHorizontalFlip": transforms.RandomHorizontalFlip,
@@ -73,7 +73,7 @@ def train(config):
         normalize
     ])
 
-    # Load dataset and apply 80/20 split
+    # Load dataset dynamically and applying 80/20 split
     full_dataset = PlacesDataset(config["data_dir"], transform=train_transform)
     train_size = int(0.8 * len(full_dataset))
     val_size = len(full_dataset) - train_size
@@ -87,7 +87,7 @@ def train(config):
     print(f"Classes: {len(class_names)} | Train images: {len(train_data)} | Val images: {len(val_data)}")
 
     # --- 3. MODEL, OPTIMIZER, AND LOSS FUNCTION ---
-    # ... (This is the full model, optimizer, scheduler, and loss block)
+    # ... (This is the full model, optimiser, scheduler, and loss block)
     if "dinov2" in config["model_name"]:
         model = Dinov2ForImageClassification.from_pretrained(
             config["model_name"], num_labels=len(class_names), ignore_mismatched_sizes=True
