@@ -1,4 +1,5 @@
 import torch
+import torch.nn as nn
 import torch.nn.functional as F
 from torch.utils.data import DataLoader
 from torchvision import transforms, datasets, models
@@ -8,10 +9,15 @@ from sklearn.metrics import confusion_matrix
 import numpy as np
 import argparse
 import os
+import sys
 from PIL import Image
 
 # Import all necessary model classes
 from transformers import AutoImageProcessor, ViTForImageClassification, Dinov2ForImageClassification
+
+# Add project root to Python path
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+from utils.device import get_device
 
 def is_valid_image(path):
     """Checks if an image file can be opened and is not corrupted."""
@@ -25,7 +31,7 @@ def is_valid_image(path):
 
 def evaluate(args):
     """Evaluates the model on a custom test set."""
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    device = get_device()
     print(f"Using device: {device}")
 
     # --- 1. Define Normalization and Transformations ---
@@ -79,6 +85,7 @@ def evaluate(args):
     # --- 4. Run Evaluation ---
     all_preds, all_labels = [], []
     correct_top1, correct_top5, total = 0, 0, 0
+    topk = min(5, len(class_names))  # guard against datasets with fewer than 5 classes
 
     with torch.no_grad():
         for images, labels in test_loader:
@@ -96,8 +103,8 @@ def evaluate(args):
             total += labels.size(0)
             correct_top1 += (predicted == labels).sum().item()
             
-            # Top-5 accuracy
-            _, top5_preds = outputs.topk(5, 1, True, True)
+            # Top-5 accuracy (top-k where k = min(5, num_classes))
+            _, top5_preds = outputs.topk(topk, 1, True, True)
             correct_top5 += torch.eq(top5_preds, labels.view(-1, 1)).sum().item()
 
             all_preds.extend(predicted.cpu().numpy())

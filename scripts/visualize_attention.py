@@ -10,6 +10,7 @@ import numpy as np
 # Add project root to Python path
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 from utils.dataset import PlacesDataset
+from utils.device import get_device
 
 # Import all necessary model classes
 from transformers import AutoImageProcessor, ViTForImageClassification, Dinov2ForImageClassification
@@ -38,7 +39,8 @@ def main(args):
         return
 
     # --- 1. SETUP ---
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    device = get_device()
+    print(f"Using device: {device}")
     
     # Load feature extractor for normalization values
     extractor = AutoImageProcessor.from_pretrained(args.model_name)
@@ -54,13 +56,17 @@ def main(args):
     dummy_dataset = PlacesDataset(args.data_dir)
     num_classes = len(dummy_dataset.classes)
 
+    # "eager" attention is required so the model returns attention weights;
+    # the default (SDPA) backend does not expose them.
     if "dinov2" in args.model_name:
         model = Dinov2ForImageClassification.from_pretrained(
-            args.model_name, num_labels=num_classes, ignore_mismatched_sizes=True
+            args.model_name, num_labels=num_classes, ignore_mismatched_sizes=True,
+            attn_implementation="eager",
         ).to(device)
     else: # Default to ViT
         model = ViTForImageClassification.from_pretrained(
-            args.model_name, num_labels=num_classes, ignore_mismatched_sizes=True
+            args.model_name, num_labels=num_classes, ignore_mismatched_sizes=True,
+            attn_implementation="eager",
         ).to(device)
 
     model.load_state_dict(torch.load(args.model_path, map_location=device))

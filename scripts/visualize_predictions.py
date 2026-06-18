@@ -1,4 +1,5 @@
 import torch
+import torch.nn as nn
 import torch.nn.functional as F
 from torch.utils.data import DataLoader, random_split
 from torchvision import transforms
@@ -8,23 +9,23 @@ import argparse
 import sys
 import os
 from torchvision import models
-from transformers import ViTForImageClassification, Dinov2ForImageClassification
+from transformers import AutoImageProcessor, ViTForImageClassification, Dinov2ForImageClassification
 
 # Add project root to Python path
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 from utils.dataset import PlacesDataset
-from transformers import AutoImageProcessor, ViTForImageClassification
+from utils.device import get_device
 
-def plot_predictions(images, true_labels, top5_probs, top5_classes, class_names, num_images=5):
+def plot_predictions(images, true_labels, top5_probs, top5_classes, class_names, mean, std, num_images=5, save_path=None):
     """Plots images with their true and predicted labels."""
+    mean = np.array(mean)
+    std = np.array(std)
     plt.figure(figsize=(15, 3 * num_images))
     for i in range(num_images):
         ax = plt.subplot(num_images, 1, i + 1)
-        
-        # Un-normalize the image for display
+
+        # Un-normalize the image for display using the model's own stats
         img = images[i].cpu().numpy().transpose((1, 2, 0))
-        mean = np.array([0.5, 0.5, 0.5]) # These are the default ViT stats
-        std = np.array([0.5, 0.5, 0.5])
         img = std * img + mean
         img = np.clip(img, 0, 1)
         
@@ -36,8 +37,8 @@ def plot_predictions(images, true_labels, top5_probs, top5_classes, class_names,
         title_color = 'green' if true_label_name == top5_classes[i][0] else 'red'
         ax.set_title(f"True Label: {true_label_name}", color=title_color, fontweight='bold')
         
-        pred_text = "Top-5 Predictions:\n"
-        for j in range(5):
+        pred_text = "Top Predictions:\n"
+        for j in range(len(top5_classes[i])):
             pred_text += f"{j+1}. {top5_classes[i][j]} ({top5_probs[i][j]:.2f})\n"
             
         # Add text box with predictions
@@ -46,10 +47,15 @@ def plot_predictions(images, true_labels, top5_probs, top5_classes, class_names,
                 verticalalignment='center', bbox=props)
 
     plt.tight_layout(rect=[0, 0, 0.85, 1]) # Adjust layout to make space for text
-    plt.show()
+    if save_path:
+        plt.savefig(save_path, dpi=200, bbox_inches="tight")
+        print(f"Predictions figure saved to {save_path}")
+    else:
+        plt.show()
 
 def main(args):
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    device = get_device()
+    print(f"Using device: {device}")
 
     # --- Load Model and Data (Corrected Logic) ---
     if "dinov2" in args.model_name or "google/vit" in args.model_name:
@@ -115,7 +121,7 @@ def main(args):
                 outputs = model_output.logits
                 
             probs = F.softmax(outputs, dim=1)
-            top5_probs, top5_indices = torch.topk(probs, 5)
+            top5_probs, top5_indices = torch.topk(probs, min(5, len(class_names)))
             preds = top5_indices[:, 0]
             
             matches = (preds == labels) if args.correct else (preds != labels)
@@ -133,7 +139,11 @@ def main(args):
 
     # --- Plot Results ---
     if found_images > 0:
-        plot_predictions(batch_images, batch_labels, batch_top5_probs, batch_top5_classes, class_names, num_images=found_images)
+        plot_predictions(
+            batch_images, batch_labels, batch_top5_probs, batch_top5_classes, class_names,
+            mean=normalize.mean, std=normalize.std,
+            num_images=found_images, save_path=args.save_path,
+        )
     else:
         print("Could not find enough matching examples.")
 
@@ -146,6 +156,7 @@ if __name__ == "__main__":
     parser.add_argument("--num_images", type=int, default=5, help="Number of images to visualize.")
     parser.add_argument("--seed", type=int, default=42, help="Seed for the train/val split.")
     parser.add_argument("--batch_size", type=int, default=32, help="Batch size for data loading.")
+    parser.add_argument("--save_path", type=str, default=None, help="If set, save the figure here instead of showing it interactively.")
     group = parser.add_mutually_exclusive_group(required=True)
     group.add_argument("--correct", action="store_true", help="Visualize correctly classified images.")
     group.add_argument("--incorrect", action="store_true", help="Visualize incorrectly classified images.")

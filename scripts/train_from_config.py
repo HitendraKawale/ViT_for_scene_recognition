@@ -21,6 +21,7 @@ import numpy as np
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 from utils.dataset import PlacesDataset
+from utils.device import get_device
 
 def train(config):
     """
@@ -33,9 +34,10 @@ def train(config):
     with open(os.path.join(save_dir, "config.yaml"), "w") as f:
         yaml.dump(config, f)
     
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    device = get_device()
+    # Mixed precision is only reliable on CUDA; keep fp32 on MPS/CPU.
     use_amp = config["precision"] == "fp16" and device.type == "cuda"
-    scaler = torch.amp.GradScaler(device='cuda', enabled=use_amp)
+    scaler = torch.amp.GradScaler(enabled=use_amp)
     print(f"Using device: {device} | Mixed Precision: {'Enabled' if use_amp else 'Disabled'}")
 
     # --- 2. DATA LOADING AND TRANSFORMATION ---
@@ -81,8 +83,9 @@ def train(config):
     
     val_data.dataset.transform = val_transform
     
-    train_loader = DataLoader(train_data, batch_size=config["batch_size"], shuffle=True, num_workers=4)
-    val_loader = DataLoader(val_data, batch_size=config["batch_size"], shuffle=False, num_workers=4)
+    num_workers = config.get("num_workers", 4)
+    train_loader = DataLoader(train_data, batch_size=config["batch_size"], shuffle=True, num_workers=num_workers)
+    val_loader = DataLoader(val_data, batch_size=config["batch_size"], shuffle=False, num_workers=num_workers)
     class_names = full_dataset.classes
     print(f"Classes: {len(class_names)} | Train images: {len(train_data)} | Val images: {len(val_data)}")
 
@@ -127,8 +130,10 @@ def train(config):
     else:
         scheduler = None
         print("No scheduler selected.")
-    criterion = nn.CrossEntropyLoss()    # --- 4. LOGGING SETUP ---
-    
+    criterion = nn.CrossEntropyLoss()
+
+    # --- 4. LOGGING SETUP ---
+
     writer = SummaryWriter(log_dir=save_dir) # TensorBoard logger [cite: 77]
     metrics_path = os.path.join(save_dir, "metrics.csv")
     with open(metrics_path, "w", newline="") as f:
@@ -139,6 +144,7 @@ def train(config):
     
     best_val_acc = 0
     patience_counter = 0
+    topk = min(5, len(class_names))  # guard against datasets with fewer than 5 classes
 
     for epoch in range(1, config["epochs"] + 1):
         model.train()
@@ -148,7 +154,7 @@ def train(config):
         for images, labels in loop:
             images, labels = images.to(device), labels.to(device)
             
-            with torch.amp.autocast(device_type="cuda", enabled=use_amp):
+            with torch.amp.autocast(device_type=device.type, enabled=use_amp):
                 model_output = model(images)
                 if config["model_name"] == "resnet50":
                     outputs = model_output
@@ -186,8 +192,8 @@ def train(config):
                 val_total += labels.size(0)
                 val_correct_top1 += (predicted == labels).sum().item()
 
-                # Top-5 accuracy
-                _, top5_preds = outputs.topk(5, 1, True, True)
+                # Top-5 accuracy (top-k where k = min(5, num_classes))
+                _, top5_preds = outputs.topk(topk, 1, True, True)
                 val_correct_top5 += torch.eq(top5_preds, labels.view(-1, 1)).sum().item()
 
         val_acc = val_correct_top1 / val_total
@@ -200,13 +206,15 @@ def train(config):
         writer.add_scalar("Accuracy/train", train_acc, epoch)
         writer.add_scalar("Accuracy/validation_Top1", val_acc, epoch)
         writer.add_scalar("Accuracy/validation_Top5", val_top5_acc, epoch)
-        writer.add_scalar("Misc/learning_rate", scheduler.get_last_lr()[0], epoch)
+        current_lr = scheduler.get_last_lr()[0] if scheduler is not None else optimizer.param_groups[0]["lr"]
+        writer.add_scalar("Misc/learning_rate", current_lr, epoch)
         with open(metrics_path, "a", newline="") as f:
             csv_writer = csv.writer(f)
             csv_writer.writerow([epoch, f"{train_loss:.4f}", f"{train_acc:.4f}", f"{val_acc:.4f}", f"{val_top5_acc:.4f}"])
 
-        scheduler.step()
-        
+        if scheduler is not None:
+            scheduler.step()
+
         # Save best model and handle early stopping
         if val_acc > best_val_acc:
             best_val_acc = val_acc
@@ -225,7 +233,7 @@ def train(config):
     # --- 6. FINAL EVALUATION AND CONFUSION MATRIX ---
     
     print("Generating confusion matrix with best model...")
-    model.load_state_dict(torch.load(os.path.join(save_dir, "vit_best.pth")))
+    model.load_state_dict(torch.load(os.path.join(save_dir, "vit_best.pth"), map_location=device))
     model.eval()
     
     all_preds, all_labels = [], []
