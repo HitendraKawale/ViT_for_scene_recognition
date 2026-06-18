@@ -1,0 +1,30 @@
+# configs/convnext_config.yaml
+# ConvNeXt baseline -- a modern CNN that competes with transformers.
+# Useful as a "CNN vs. Transformer" comparison point in the study.
+
+run_name: "ConvNeXt_Comparison_Run"
+data_dir: "data/Places2_simp"
+log_dir: "results/runs"
+
+model_name: "facebook/convnext-tiny-224"
+precision: "fp16"
+
+epochs: 20
+batch_size: 32
+
+optimizer:
+  name: "AdamW"
+  lr: 0.0001
+  weight_decay: 0.01
+
+scheduler:
+  name: "cosine"
+
+augmentations:
+  - name: "RandomHorizontalFlip"
+    params: {}
+  - name: "ColorJitter"
+    params: {brightness: 0.2, contrast: 0.2, saturation: 0.2}
+
+seed: 42
+patience: 5
