@@ -1,5 +1,4 @@
 import torch
-import torch.nn as nn
 import torch.nn.functional as F
 from torch.utils.data import DataLoader, random_split
 from torchvision import transforms
@@ -8,13 +7,12 @@ import numpy as np
 import argparse
 import sys
 import os
-from torchvision import models
-from transformers import AutoImageProcessor, ViTForImageClassification, Dinov2ForImageClassification
 
 # Add project root to Python path
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 from utils.dataset import PlacesDataset
 from utils.device import get_device
+from utils.models import build_model, get_normalization, forward_logits
 
 def plot_predictions(images, true_labels, top5_probs, top5_classes, class_names, mean, std, num_images=5, save_path=None):
     """Plots images with their true and predicted labels."""
@@ -57,14 +55,9 @@ def main(args):
     device = get_device()
     print(f"Using device: {device}")
 
-    # --- Load Model and Data (Corrected Logic) ---
-    if "dinov2" in args.model_name or "google/vit" in args.model_name:
-        extractor = AutoImageProcessor.from_pretrained(args.model_name, use_fast=True)
-        normalize = transforms.Normalize(mean=extractor.image_mean, std=extractor.image_std)
-    elif args.model_name == "resnet50":
-        normalize = transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
-    else:
-        raise ValueError(f"Normalization stats not defined for model: {args.model_name}")
+    # --- Load Model and Data ---
+    mean, std = get_normalization(args.model_name)
+    normalize = transforms.Normalize(mean=mean, std=std)
 
     val_transform = transforms.Compose([
         transforms.Resize((224, 224)),
@@ -81,23 +74,7 @@ def main(args):
     val_loader = DataLoader(val_data, batch_size=args.batch_size, shuffle=True)
     class_names = full_dataset.classes
     
-    # Load your best model using the correct architecture
-    if "dinov2" in args.model_name:
-        model = Dinov2ForImageClassification.from_pretrained(
-            args.model_name, num_labels=len(class_names), ignore_mismatched_sizes=True
-        ).to(device)
-    elif "google/vit" in args.model_name:
-        model = ViTForImageClassification.from_pretrained(
-            args.model_name, num_labels=len(class_names), ignore_mismatched_sizes=True
-        ).to(device)
-    elif args.model_name == "resnet50":
-        model = models.resnet50(weights='IMAGENET1K_V1')
-        num_ftrs = model.fc.in_features
-        model.fc = nn.Linear(num_ftrs, len(class_names))
-        model = model.to(device)
-    else:
-        raise ValueError(f"Unsupported model name: {args.model_name}")
-
+    model = build_model(args.model_name, len(class_names)).to(device)
     model.load_state_dict(torch.load(args.model_path, map_location=device))
     model.eval()
 
@@ -112,14 +89,7 @@ def main(args):
                 break
             
             images, labels = images.to(device), labels.to(device)
-            
-            # Handle different model output formats
-            model_output = model(images)
-            if args.model_name == "resnet50":
-                outputs = model_output
-            else: # For Hugging Face models
-                outputs = model_output.logits
-                
+            outputs = forward_logits(model, args.model_name, images)
             probs = F.softmax(outputs, dim=1)
             top5_probs, top5_indices = torch.topk(probs, min(5, len(class_names)))
             preds = top5_indices[:, 0]

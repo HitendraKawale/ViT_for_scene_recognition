@@ -11,9 +11,7 @@ import numpy as np
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 from utils.dataset import PlacesDataset
 from utils.device import get_device
-
-# Import all necessary model classes
-from transformers import AutoImageProcessor, ViTForImageClassification, Dinov2ForImageClassification
+from utils.models import get_normalization, build_model
 
 def plot_attention_map(original_image, attention_map, save_path):
     """Overlays the attention map on the original image and saves it."""
@@ -41,10 +39,9 @@ def main(args):
     # --- 1. SETUP ---
     device = get_device()
     print(f"Using device: {device}")
-    
-    # Load feature extractor for normalization values
-    extractor = AutoImageProcessor.from_pretrained(args.model_name)
-    normalize = transforms.Normalize(mean=extractor.image_mean, std=extractor.image_std)
+
+    mean, std = get_normalization(args.model_name)
+    normalize = transforms.Normalize(mean=mean, std=std)
 
     transform = transforms.Compose([
         transforms.Resize((224, 224)),
@@ -58,17 +55,7 @@ def main(args):
 
     # "eager" attention is required so the model returns attention weights;
     # the default (SDPA) backend does not expose them.
-    if "dinov2" in args.model_name:
-        model = Dinov2ForImageClassification.from_pretrained(
-            args.model_name, num_labels=num_classes, ignore_mismatched_sizes=True,
-            attn_implementation="eager",
-        ).to(device)
-    else: # Default to ViT
-        model = ViTForImageClassification.from_pretrained(
-            args.model_name, num_labels=num_classes, ignore_mismatched_sizes=True,
-            attn_implementation="eager",
-        ).to(device)
-
+    model = build_model(args.model_name, num_classes, attn_implementation="eager").to(device)
     model.load_state_dict(torch.load(args.model_path, map_location=device))
     model.eval()
 

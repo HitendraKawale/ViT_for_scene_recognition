@@ -1,23 +1,18 @@
 import torch
-import torch.nn as nn
-import torch.nn.functional as F
 from torch.utils.data import DataLoader
-from torchvision import transforms, datasets, models
+from torchvision import transforms, datasets
 import matplotlib.pyplot as plt
 import seaborn as sns
 from sklearn.metrics import confusion_matrix
-import numpy as np
 import argparse
 import os
 import sys
 from PIL import Image
 
-# Import all necessary model classes
-from transformers import AutoImageProcessor, ViTForImageClassification, Dinov2ForImageClassification
-
 # Add project root to Python path
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 from utils.device import get_device
+from utils.models import build_model, get_normalization, forward_logits
 
 def is_valid_image(path):
     """Checks if an image file can be opened and is not corrupted."""
@@ -35,14 +30,8 @@ def evaluate(args):
     print(f"Using device: {device}")
 
     # --- 1. Define Normalization and Transformations ---
-    # First, determine the correct normalization based on the model
-    if "dinov2" in args.model_name or "google/vit" in args.model_name:
-        extractor = AutoImageProcessor.from_pretrained(args.model_name, use_fast=True)
-        normalize = transforms.Normalize(mean=extractor.image_mean, std=extractor.image_std)
-    elif args.model_name == "resnet50":
-        normalize = transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
-    else:
-        raise ValueError(f"Normalization stats not defined for model: {args.model_name}")
+    mean, std = get_normalization(args.model_name)
+    normalize = transforms.Normalize(mean=mean, std=std)
 
     # Use the same transformations as in the validation set (no augmentation)
     test_transform = transforms.Compose([
@@ -63,22 +52,7 @@ def evaluate(args):
     print(f"Found {len(test_dataset)} images in {len(class_names)} classes.")
 
     # --- 3. Load Model ---
-    if "dinov2" in args.model_name:
-        model = Dinov2ForImageClassification.from_pretrained(
-            args.model_name, num_labels=len(class_names), ignore_mismatched_sizes=True
-        ).to(device)
-    elif "google/vit" in args.model_name:
-        model = ViTForImageClassification.from_pretrained(
-            args.model_name, num_labels=len(class_names), ignore_mismatched_sizes=True
-        ).to(device)
-    elif args.model_name == "resnet50":
-        model = models.resnet50(weights='IMAGENET1K_V1')
-        num_ftrs = model.fc.in_features
-        model.fc = nn.Linear(num_ftrs, len(class_names))
-        model = model.to(device)
-    else:
-        raise ValueError(f"Unsupported model name: {args.model_name}")
-
+    model = build_model(args.model_name, len(class_names)).to(device)
     model.load_state_dict(torch.load(args.model_path, map_location=device))
     model.eval()
 
@@ -90,14 +64,9 @@ def evaluate(args):
     with torch.no_grad():
         for images, labels in test_loader:
             images, labels = images.to(device), labels.to(device)
-            
-            # Conditionally handle model output
-            model_output = model(images)
-            if args.model_name == "resnet50":
-                outputs = model_output
-            else: # For Hugging Face models
-                outputs = model_output.logits
-            
+            outputs = forward_logits(model, args.model_name, images)
+
+
             # Top-1 accuracy
             _, predicted = torch.max(outputs, 1)
             total += labels.size(0)

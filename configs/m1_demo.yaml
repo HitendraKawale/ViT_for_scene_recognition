@@ -1,0 +1,33 @@
+# configs/m1_demo.yaml
+# Apple Silicon (MPS) friendly fine-tuning run used to produce the
+# checkpoint served by the Hugging Face Space demo. Fewer epochs than the
+# full study configs so it finishes in a reasonable time on a laptop.
+
+run_name: "ViT_M1_demo"
+data_dir: "data/Places2_simp"
+log_dir: "results/runs"
+
+model_name: "google/vit-base-patch16-224"
+precision: "fp32"   # fp16 AMP is CUDA-only; MPS runs in fp32
+
+epochs: 3
+batch_size: 32
+num_workers: 4
+max_per_class: 250   # 250 x 40 = 10k images keeps the run laptop-friendly
+
+optimizer:
+  name: "AdamW"
+  lr: 0.0001
+  weight_decay: 0.01
+
+scheduler:
+  name: "cosine"
+
+augmentations:
+  - name: "RandomHorizontalFlip"
+    params: {}
+  - name: "ColorJitter"
+    params: {brightness: 0.2, contrast: 0.2, saturation: 0.2}
+
+seed: 42
+patience: 3
