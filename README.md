@@ -50,7 +50,7 @@ Any other Hugging Face image-classification checkpoint works too — just set
 
 ---
 
-## Experiments & results
+## Experiments
 
 The dataset is a 40-class Places2 subset (1,000 images per class, 40,000
 total) with an 80/20 train/validation split (seed `42`). The `configs/`
@@ -61,19 +61,13 @@ directory captures the study performed:
   batch size (`batch48`, `b64`), scheduler (`cosine` vs. `steplr`) and
   augmentation strength (`dataaug`, `highaug`).
 
-Each training run reports **top-1** and **top-5** validation accuracy per
-epoch and writes everything needed to compare runs to
-`results/runs/<run_name>_<timestamp>/`:
+Among the backbones evaluated, the self-supervised **DINOv2** features gave the
+strongest scene-recognition performance, ahead of the supervised ViT and the
+CNN baselines.
 
-```
-config.yaml          # exact config used (for reproducibility)
-metrics.csv          # per-epoch train/val top-1 and top-5 accuracy
-vit_best.pth         # best checkpoint (by val accuracy)
-confusion_matrix.png # 40x40 confusion matrix on the validation set
-events.out.*         # TensorBoard logs
-```
-
-Compare any set of runs side by side with `tensorboard --logdir results/runs/`.
+Every run is self-contained and reproducible: the resolved config, the best
+checkpoint, a 40×40 confusion matrix and TensorBoard logs are written to a
+timestamped directory under `results/runs/`.
 
 ### Attention visualisations
 
@@ -138,28 +132,12 @@ python scripts/clean_dataset.py --dir data/Places2_simp
 
 ---
 
-## Setup
-
-```bash
-# 1. Clone
-git clone https://github.com/HitendraKawale/ViT_for_scene_recognition.git
-cd ViT_for_scene_recognition
-
-# 2. Virtual environment (Python 3.10–3.13)
-python3 -m venv vit_env
-source vit_env/bin/activate
-
-# 3. Dependencies
-pip install -r requirements.txt
-```
-
-On a Linux machine with an NVIDIA GPU, training automatically uses CUDA with
-fp16 automatic mixed precision (set `precision: "fp16"` in the config). On
-Apple Silicon / CPU the code falls back to fp32 — no changes required.
-
----
-
 ## Usage
+
+Dependencies are listed in `requirements.txt`. On a Linux machine with an
+NVIDIA GPU, training automatically uses CUDA with fp16 automatic mixed
+precision (set `precision: "fp16"` in the config); on Apple Silicon / CPU the
+code falls back to fp32 with no changes required.
 
 ### 1. Training
 
