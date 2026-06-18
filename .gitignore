@@ -1,9 +1,22 @@
+# Virtual environments
 vit_env/
+venv/
+.venv/
 
 # Python cache
 __pycache__/
 *.pyc
+*.pyo
 
+# macOS
+.DS_Store
+
+# Datasets (large, not version-controlled)
+data/
+
+# Training outputs / checkpoints
 results/runs/
-data/Places2_simp/
-data/custom_test_set/
+*.pth
+
+# Misc
+.ipynb_checkpoints/
